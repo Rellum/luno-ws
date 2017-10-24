@@ -1,0 +1,22 @@
+{
+  "name": "luno-ws",
+  "version": "1.0.0",
+  "description": "This is a low-level wrapper for the luno (bitx) websocket api.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "luno",
+    "bitx",
+    "bitcoin",
+    "websockets",
+    "market",
+    "exchange",
+    "trading",
+    "hfs",
+    "high-frequency"
+  ],
+  "author": "Vaughan Muller",
+  "license": "ISC"
+}
