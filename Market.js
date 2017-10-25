@@ -1,5 +1,5 @@
 function Market(user, key) {
-  const WebSocket = require('ws');
+  const WebSocketClient = require('websocket').w3cwebsocket;
   const EventEmitter = require('events');
 
   let eventEmitter = new EventEmitter;
@@ -52,38 +52,38 @@ function Market(user, key) {
 
   function connection() {
     console.log('connecting');
-    const ws = new WebSocket('wss://ws.luno.com/api/1/stream/XBTZAR');
+    const ws = new WebSocketClient('wss://ws.luno.com/api/1/stream/XBTZAR');
 
-    ws.on('open', function open() {
+    ws.onopen = function open() {
       console.log('connected');
       ws.send(JSON.stringify(creds));
-    });
+    };
 
-    ws.once('message', (initialMessage) => {
-      const message = JSON.parse(initialMessage);
+    ws.onmessage = (initialMessage) => {
+      const message = JSON.parse(initialMessage.data);
 
       lastMessageSequence = parseInt(message.sequence, 10);
       processAndSaveInitialOrderState(message);
 
-      ws.on('message', (updateMessage) => {
-        if (updateMessage.length <= 2) {
+      ws.onmessage = (updateMessage) => {
+        if (updateMessage.data.length <= 2) {
           eventEmitter.emit('Empty message');
           return;
         }
-        const parsedMessage = JSON.parse(updateMessage);
+        const parsedMessage = JSON.parse(updateMessage.data);
         if (sequenceCheck(parsedMessage.sequence)) {
           processMessage(parsedMessage);
         } else {
           ws.close();
         }
-      });
+      };
       eventEmitter.emit('marketOrderUpdate', 'Initialized', message.timestamp);
-    });
+    };
 
-    ws.on('close', () => {
+    ws.onclose = () => {
       console.log('disconnected');
       eventEmitter.emit('disconnected');
-    });
+    };
   }
 
   connection();
