@@ -1,49 +1,16 @@
-function Market(user, key) {
-  const WebSocketClient = require('websocket').w3cwebsocket;
-  const EventEmitter = require('events');
+var EventEmitter = require('events');
+var util = require('util');
 
-  let eventEmitter = new EventEmitter;
+function LunoStream(user, key, keypair) {
+  EventEmitter.call(this);
+
+  const lunoStream = this;
+
+  const WebSocketClient = require('websocket').w3cwebsocket;
+
   let lastMessageSequence = undefined;
   let orders = undefined;
   let descriptiveStatistics = undefined;
-
-  eventEmitter.on('marketOrderUpdate', (message) => {
-    console.log('marketOrderUpdate', message);
-  });
-
-  eventEmitter.on('tradeUpdate', (message) => {
-    console.log('tradeUpdate', message);
-  });
-
-  function round(value, decimals) {
-    return Number(Math.round(value + 'e' + decimals) + 'e-' + decimals);
-  }
-
-  function makeDifferenceMessage(oldNewArray) {
-    const oldValue = oldNewArray[0];
-    const newValue = oldNewArray[1];
-
-    const difference = newValue - oldValue;
-    const percentage = round((difference / oldValue) * 1e2, 2);
-
-    let output = (difference > 0) ? 'Up ' : 'Down ';
-    output += difference + ' (' + percentage + '%) ';
-    output += 'from ' + oldValue + ' to ' + newValue;
-    return output;
-  }
-
-  eventEmitter.on('midMarketPriceChange', (event) => {
-    console.log('midMarketPriceChange', makeDifferenceMessage([event.previousPrice, event.price]));
-  });
-
-  eventEmitter.on('spreadChange', (event) => {
-    console.log('spreadChange', makeDifferenceMessage([event.previousSpread, event.spread]));
-  });
-
-  function openConnection() {
-  }
-
-  openConnection();
 
   const creds = {
     "api_key_id": user,
@@ -51,11 +18,11 @@ function Market(user, key) {
   };
 
   function connection() {
-    console.log('connecting');
-    const ws = new WebSocketClient('wss://ws.luno.com/api/1/stream/XBTZAR');
+    lunoStream.emit('connecting');
+    const ws = new WebSocketClient('wss://ws.luno.com/api/1/stream/' + keypair);
 
     ws.onopen = function open() {
-      console.log('connected');
+      lunoStream.emit('connected');
       ws.send(JSON.stringify(creds));
     };
 
@@ -67,7 +34,7 @@ function Market(user, key) {
 
       ws.onmessage = (updateMessage) => {
         if (updateMessage.data.length <= 2) {
-          eventEmitter.emit('Empty message');
+          lunoStream.emit('keep-alive');
           return;
         }
         const parsedMessage = JSON.parse(updateMessage.data);
@@ -77,18 +44,17 @@ function Market(user, key) {
           ws.close();
         }
       };
-      eventEmitter.emit('marketOrderUpdate', 'Initialized', message.timestamp);
+      lunoStream.emit('market-order-update', 'Initialized', message.timestamp);
     };
 
     ws.onclose = () => {
-      console.log('disconnected');
-      eventEmitter.emit('disconnected');
+      lunoStream.emit('disconnected');
     };
   }
 
   connection();
 
-  eventEmitter.on('disconnected', connection);
+  lunoStream.on('disconnected', connection);
 
   function convertStringToCents(stringAmount) {
     return Math.round(1e2 * stringAmount);
@@ -155,12 +121,12 @@ function Market(user, key) {
     return orders.splice(index, 1);
   }
 
-  eventEmitter.on('tradeExecuted', (tradeUpdate) => {
+  this.on('trade-executed', (tradeUpdate) => {
     let message = 'Traded: ';
     if (tradeUpdate.isFilled === true) {
       message = 'Filled: ';
     }
-    eventEmitter.emit('marketOrderUpdate', message + tradeUpdate.base, tradeUpdate.timestamp);
+    lunoStream.emit('market-order-update', message + tradeUpdate.base, tradeUpdate.timestamp);
   });
 
   function processTradeUpdates(tradeUpdates) {
@@ -173,7 +139,7 @@ function Market(user, key) {
           deleteOrderByIndex(orderIndex);
           tradeUpdate.isFilled = true;
         }
-        eventEmitter.emit('tradeExecuted', tradeUpdate);
+        lunoStream.emit('trade-executed', tradeUpdate);
       });
     }
   }
@@ -182,12 +148,12 @@ function Market(user, key) {
     if (createUpdate !== null) {
       createUpdate.volume = convertStringToSatoshis(createUpdate.volume);
       orders.push(createUpdate);
-      eventEmitter.emit('marketOrderCreate', createUpdate);
+      lunoStream.emit('market-order-create', createUpdate);
     }
   }
 
-  eventEmitter.on('marketOrderCreate', (createUpdate) => {
-    eventEmitter.emit('marketOrderUpdate', 'Created order: ' + createUpdate.order_id, createUpdate.timestamp);
+  this.on('market-order-create', (createUpdate) => {
+    lunoStream.emit('market-order-update', 'Created order: ' + createUpdate.order_id, createUpdate.timestamp);
   });
 
   function getOrderIndexById(id) {
@@ -205,12 +171,12 @@ function Market(user, key) {
   function processDeleteUpdate(deleteUpdate) {
     if (deleteUpdate !== null) {
       deleteOrderById(deleteUpdate.order_id);
-      eventEmitter.emit('marketOrderDeleted', deleteUpdate);
+      lunoStream.emit('market-order-delete', deleteUpdate);
     }
   }
 
-  eventEmitter.on('marketOrderDeleted', (deleteUpdate) => {
-    eventEmitter.emit('marketOrderUpdate', 'Deleted order: ' + deleteUpdate.order_id, deleteUpdate.timestamp);
+  lunoStream.on('market-order-delete', (deleteUpdate) => {
+    lunoStream.emit('market-order-update', 'Deleted order: ' + deleteUpdate.order_id, deleteUpdate.timestamp);
   });
 
   function aggregateOrders(accumulator, order, orderIndex) {
@@ -237,64 +203,20 @@ function Market(user, key) {
     updatedDescriptiveStatistics.spread = updatedDescriptiveStatistics.minAsk - updatedDescriptiveStatistics.maxBid;
     if (typeof descriptiveStatistics !== 'undefined') {
       if (updatedDescriptiveStatistics.midMarketPrice !== descriptiveStatistics.midMarketPrice) {
-        eventEmitter.emit('midMarketPriceChange', { previousPrice: descriptiveStatistics.midMarketPrice, price: updatedDescriptiveStatistics.midMarketPrice, timestamp});
+        lunoStream.emit('price-change', { previousPrice: descriptiveStatistics.midMarketPrice, price: updatedDescriptiveStatistics.midMarketPrice, timestamp});
       }
       if (updatedDescriptiveStatistics.spread !== descriptiveStatistics.spread) {
-        eventEmitter.emit('spreadChange', { previousSpread: descriptiveStatistics.spread, spread: updatedDescriptiveStatistics.spread, timestamp});
+        lunoStream.emit('spread-change', { previousSpread: descriptiveStatistics.spread, spread: updatedDescriptiveStatistics.spread, timestamp});
       }
     }
     descriptiveStatistics = updatedDescriptiveStatistics;
   }
 
-  eventEmitter.on('marketOrderUpdate', calculateDescriptiveStatistics);
-
-  eventEmitter.on('midMarketPriceChange', (event) => {
-    let fs = require('fs');
-    fs.appendFile('price.txt', event.timestamp + ', ' + (event.price / 1e2).toFixed(2) + '\n', (err) => {
-      if (err) throw err;
-    });
-  });
-
-  eventEmitter.on('tradeExecuted', (event) => {
-    let fs = require('fs');
-    fs.appendFile('trades.txt', event.timestamp + ', ' + event.base + ', ' + event.counter + '\n', (err) => {
-      if (err) throw err;
-    });
-  });
-
-  this.getTicker = (callback) => {
-    return null;
-  }
-
-  this.getFee = (callback) => {
-    return null;
-  }
-
-  this.getPortfolio = (callback) => {
-    return null;
-  }
-
-  this.buy = (amount, price, callback) => {
-    return null;
-  }
-
-  this.sell = (amount, price, callback) => {
-    return null;
-  }
-
-  this.checkOrder = (order, callback) => {
-    return null;
-  }
-
-  this.cancelOrder = (order) => {
-    return null;
-  }
-
-  this.getTrades = (since, callback, descending) => {
-    return null;
-  }
+  lunoStream.on('market-order-update', calculateDescriptiveStatistics);
 }
 
+util.inherits(LunoStream, EventEmitter);
+
 module.exports = {
-  Market,
+  LunoStream,
 };
